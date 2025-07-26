@@ -62,6 +62,8 @@ AthenaX uses Alpaca's paper trading environment by default. To get started:
 
 **Note**: The bot currently uses Alpaca's paper trading API (`https://paper-api.alpaca.markets`). For live trading, you'll need to modify the base URL in the code.
 
+**Important**: This bot requires an Alpaca Pro subscription as it uses the SIP (Securities Information Processor) feed to get NBBO (National Best Bid and Offer) and live quotes for accurate market data.
+
 ### Notification System
 
 AthenaX supports real-time notifications for trading events through webhooks:
