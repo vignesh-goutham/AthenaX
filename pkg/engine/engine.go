@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"log"
 
 	"github.com/vignesh-goutham/AthenaX/pkg/alpaca"
 	"github.com/vignesh-goutham/AthenaX/pkg/strategies"
@@ -21,14 +22,14 @@ func NewEngine(strategies []strategies.Strategy, broker *alpaca.Client) *Engine 
 
 func (e *Engine) Run(ctx context.Context) error {
 	// Check if market is open first
-	// isOpen, err := e.broker.IsMarketOpen(ctx)
-	// if err != nil {
-	// 	return err
-	// }
-	// if !isOpen {
-	// 	log.Println("Market is closed, exiting...")
-	// 	return nil
-	// }
+	isOpen, err := e.broker.IsMarketOpen(ctx)
+	if err != nil {
+		return err
+	}
+	if !isOpen {
+		log.Println("Market is closed, exiting...")
+		return nil
+	}
 
 	// Run strategies only if market is open
 	for _, strategy := range e.strategies {
