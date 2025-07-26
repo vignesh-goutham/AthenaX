@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/vignesh-goutham/AthenaX/pkg/alpaca"
 	"github.com/vignesh-goutham/AthenaX/pkg/engine"
+	"github.com/vignesh-goutham/AthenaX/pkg/notification"
 	"github.com/vignesh-goutham/AthenaX/pkg/strategies"
 )
 
@@ -40,17 +41,23 @@ func runStrategy(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to create broker client: %w", err)
 	}
 
+	// Create notification client
+	notifier, err := notification.NewClient()
+	if err != nil {
+		return fmt.Errorf("failed to create notification client: %w", err)
+	}
+
 	// Create strategy based on name
 	var strategy strategies.Strategy
 	switch strategyName {
 	case "two-percent-down":
-		strategy = strategies.NewTwoPercentDown(broker)
+		strategy = strategies.NewTwoPercentDown(broker, notifier)
 	default:
 		return fmt.Errorf("unknown strategy: %s", strategyName)
 	}
 
 	// Create engine with the strategy
-	eng := engine.NewEngine([]strategies.Strategy{strategy}, broker)
+	eng := engine.NewEngine([]strategies.Strategy{strategy}, broker, notifier)
 
 	// Create context
 	ctx := context.Background()

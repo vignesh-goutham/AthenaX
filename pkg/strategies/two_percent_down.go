@@ -8,6 +8,7 @@ import (
 	"strconv"
 
 	"github.com/vignesh-goutham/AthenaX/pkg/alpaca"
+	"github.com/vignesh-goutham/AthenaX/pkg/notification"
 )
 
 const ticker = "QQQ"
@@ -15,10 +16,11 @@ const ticker = "QQQ"
 type TwoPercentDown struct {
 	broker           *alpaca.Client
 	maxActiveOptions int
+	notifier         *notification.Client
 }
 
 // NewTwoPercentDown creates a new TwoPercentDown strategy instance
-func NewTwoPercentDown(broker *alpaca.Client) *TwoPercentDown {
+func NewTwoPercentDown(broker *alpaca.Client, notifier *notification.Client) *TwoPercentDown {
 	// Get max active options from environment variable, default to 5
 	maxActiveOptions := 5
 	if envMax := os.Getenv("MAX_ACTIVE_OPTIONS"); envMax != "" {
@@ -30,6 +32,7 @@ func NewTwoPercentDown(broker *alpaca.Client) *TwoPercentDown {
 	return &TwoPercentDown{
 		broker:           broker,
 		maxActiveOptions: maxActiveOptions,
+		notifier:         notifier,
 	}
 }
 
@@ -37,13 +40,13 @@ func (s *TwoPercentDown) Run(ctx context.Context) error {
 	// Step 1: Get yesterday's close of ticker
 	yesterdayClose, err := s.broker.GetLastTradingDayClose(ctx, ticker)
 	if err != nil {
-		return fmt.Errorf("failed to get yesterday's close for %s: %w", ticker, err)
+		return s.notifier.Failure(fmt.Sprintf("failed to get yesterday's close for %s: %w", ticker, err))
 	}
 
 	// Step 2: Get latest quote now
 	currentPrice, err := s.broker.GetLatestQuote(ctx, ticker)
 	if err != nil {
-		return fmt.Errorf("failed to get latest quote for %s: %w", ticker, err)
+		return s.notifier.Failure(fmt.Sprintf("failed to get latest quote for %s: %w", ticker, err))
 	}
 
 	// Step 3: Calculate gap down if any
@@ -54,31 +57,47 @@ func (s *TwoPercentDown) Run(ctx context.Context) error {
 		log.Printf("GAP DOWN DETECTED: %s is down %.2f%% from yesterday's close (Current: $%.2f, Yesterday: $%.2f)",
 			ticker, -changePercent, currentPrice, yesterdayClose)
 
+		// Check current number of QQQ call options
+		openOptions, err := s.broker.GetOptionsPositions(ctx, ticker)
+		if err != nil {
+			return s.notifier.Failure(fmt.Sprintf("failed to get QQQ option positions: %w", err))
+		}
+
+		if len(openOptions) >= s.maxActiveOptions {
+			log.Printf("Already have maximum number of active options (%d). Skipping.", s.maxActiveOptions)
+			return s.notifier.MaxActiveOptions(fmt.Sprintf("Already have maximum number of active options (%d)", s.maxActiveOptions))
+		}
+
+		log.Printf("Current active options: %d/%d", len(openOptions), s.maxActiveOptions)
+
 		// Step 5: Get the lowest strike call LEAPS option with delta >= 0.6
 		optionSymbol, optionSnapshot, err := s.broker.GetCallLeapsByDelta(ctx, ticker, 0.60)
 		if err != nil {
-			return fmt.Errorf("failed to get call LEAPS option for %s: %w", ticker, err)
+			return s.notifier.Failure(fmt.Sprintf("failed to get call LEAPS option for %s: %w", ticker, err))
 		}
-		fmt.Printf("Found option symbol: %s\n", optionSymbol)
-		fmt.Printf("Found option snapshot: %+v\n", optionSnapshot)
+		log.Printf("Found option symbol: %s\n", optionSymbol)
+		log.Printf("Found option snapshot: %+v\n", optionSnapshot)
 
 		// Calculate investment size for this option
 		investmentSize, err := s.calculateInvestmentSize(ctx)
 		if err != nil {
-			return fmt.Errorf("failed to calculate investment size: %w", err)
+			return s.notifier.Failure(fmt.Sprintf("failed to calculate investment size: %w", err))
 		}
 
 		log.Printf("Will invest $%.2f in option %s", investmentSize, optionSymbol)
 
 		// Place the order
-		_, err = s.broker.PlaceOptionLimitOrderWithTakeProfit(ctx, investmentSize, optionSymbol, optionSnapshot.LatestQuote, 50.0)
+		order, err := s.broker.PlaceOptionLimitOrderWithTakeProfit(ctx, investmentSize, optionSymbol, optionSnapshot.LatestQuote, 50.0)
 		if err != nil {
 			return fmt.Errorf("failed to place order: %w", err)
 		}
+		return s.notifier.OrderPlaced(fmt.Sprintf("QQQ gap down %.2f%%. Order ID: %s", changePercent, order.ID))
 
 	} else {
 		log.Printf("No significant gap down: %s is %+.2f%% from yesterday's close (Current: $%.2f, Yesterday: $%.2f)",
 			ticker, changePercent, currentPrice, yesterdayClose)
+		return s.notifier.NoGapDown(fmt.Sprintf("No significant gap down: %s is %+.2f%% from yesterday's close (Current: $%.2f, Yesterday: $%.2f)",
+			ticker, changePercent, currentPrice, yesterdayClose))
 	}
 
 	return nil
