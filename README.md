@@ -15,7 +15,7 @@ make build
 ```
 
 ### Available Strategies
-- **two-percent-down**: Executes a 2% gap down strategy
+- **two-percent-down**: When QQQ gaps down 2% or more at market open, automatically places a bracket order to buy a LEAP call option with delta >= 0.60, setting a take profit target at 50% gain.
 
 ## Configuration
 
